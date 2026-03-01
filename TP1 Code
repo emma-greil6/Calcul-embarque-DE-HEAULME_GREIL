@@ -1,0 +1,184 @@
+#define PinTimer 2
+#define RC 328 //Todo: Définir la valeur trouver pour le registre de comparaison
+#define BUF_SIZE 128
+uint16_t buffer[BUF_SIZE];
+
+void setupTimer(){
+  /*Todo:
+    Partie 1:
+    1 - Activer le périphérique Timer
+    2 - Configurer le registre TC_CMR
+    3 - Valeur du registre de comparaison
+    4 - Activation de l'interruption par RC Compare
+    5 - Activation de l'interruption dans le NVIC de la Due
+  */
+  // 1 - Activer le périphérique Timer
+  PMC->PMC_PCER0 |= (1 << ID_TC0);
+
+  // 2 - Configurer le registre TC_CMR
+  TC0->TC_CHANNEL[0].TC_CMR =
+      TC_CMR_TCCLKS_TIMER_CLOCK3 |  // MCK / 32
+      TC_CMR_WAVE |                 // Mode onde
+      TC_CMR_WAVSEL_UP_RC;           // Reset compteur sur RC
+
+  // 3 - Valeur du registre de comparaison RC
+  // 84 MHz / 128 = 656250 Hz
+  // 656250 / 1000 = 656 → 1 ms
+  TC0->TC_CHANNEL[0].TC_RC = RC;
+
+  // 4 - Activation de l'interruption RC Compare
+  TC0->TC_CHANNEL[0].TC_IER = TC_IER_CPCS;
+  TC0->TC_CHANNEL[0].TC_IDR = ~TC_IER_CPCS;
+
+  // 5 - Activation NVIC
+  NVIC_EnableIRQ(TC0_IRQn);
+
+  // Démarrage du Timer
+  TC0->TC_CHANNEL[0].TC_CCR =
+      TC_CCR_CLKEN | TC_CCR_SWTRG;
+}
+
+void TC0_Handler(){
+  /*Todo:
+    Partie 1:
+    1 - Lire et effacer le drapeau d'interruption
+    2 - Changer l'état du pin timer pour analyser la fréquence du timer sur oscilloscope
+
+    Partie 2:
+    1 - Lancer manuellement la conversion de l'ADC
+  */
+  // 1 - Lire et effacer le drapeau d'interruption
+  TC0->TC_CHANNEL[0].TC_SR;
+
+  // 2 - Changer l'état du pin timer
+  digitalWrite(PinTimer, !digitalRead(PinTimer));
+
+  // Partie 2:
+  // 1 - Lancer manuellement la conversion ADC
+  ADC->ADC_CR = ADC_CR_START;
+}
+
+/*void setupADC(){
+  /* Todo:
+    Partie 2:
+    1 - Activer le périphérique ADC
+    2 - Configurer l'ADC dans ADC_MR
+    3 - Selectionner le channel d'entrée de l'ADC 
+  */
+  // 1 - Activer le périphérique ADC
+  /*PMC->PMC_PCER1 |= PMC_PCER1_PID37;
+
+  // 2 - Configurer l'ADC
+  ADC->ADC_MR =
+      ADC_MR_TRGEN_DIS |        // Déclenchement manuel
+      ADC_MR_LOWRES_BITS_12 |   // Résolution 12 bits
+      ADC_MR_PRESCAL(3) |       // Prescaler = 3
+      ADC_MR_STARTUP_SUT64 |    // Startup = 64 ADC_CLK
+      ADC_MR_SETTLING_AST3 |    // Stabilisation minimale
+      ADC_MR_TRACKTIM(15);      // 16 ADC_CLK entre canaux
+
+  // 3 - Selectionner le channel ADC (A0 = CH7)
+  ADC->ADC_CHDR = 0xFFFF;
+  ADC->ADC_CHER = ADC_CHER_CH7;
+}*/
+
+void setupADC_DMA() {
+  PMC->PMC_PCER1 |= PMC_PCER1_PID37;
+
+  ADC->ADC_MR =
+      ADC_MR_TRGEN_DIS |
+      ADC_MR_LOWRES_BITS_12 |
+      ADC_MR_PRESCAL(3) |
+      ADC_MR_STARTUP_SUT64 |
+      ADC_MR_SETTLING_AST3 |
+      ADC_MR_TRACKTIM(15);
+
+  ADC->ADC_CHER = ADC_CHER_CH7;
+
+  // DMA ADC
+  ADC->ADC_RPR = (uint32_t)buffer;
+  ADC->ADC_RCR = BUF_SIZE;
+  ADC->ADC_RNPR = (uint32_t)buffer;
+  ADC->ADC_RNCR = BUF_SIZE;
+
+  ADC->ADC_PTCR = ADC_PTCR_RXTEN; // Active DMA RX
+}
+
+/*void setupDAC(){
+  PMC->PMC_PCER1 |= PMC_PCER1_PID38; // Active le périphérique DAC
+  // Configure le DAC en mode normal
+  DACC->DACC_MR = DACC_MR_TRGEN_DIS // Désactive le déclencheur externe
+                  | DACC_MR_USER_SEL_CHANNEL1 // select canal 1 // DACC_MR_USER_SEL_CHANNEL0
+                  | DACC_MR_WORD_HALF // Largeur de mot de 16 bits (0 - 4095)
+                  | DACC_MR_REFRESH(1) // Temps de rafraîchissement
+                  | DACC_MR_STARTUP_8 // Temps de démarrage
+                  | DACC_MR_MAXS; // DMA activé
+  // Active le canal 1 du DAC
+  DACC->DACC_CHER = DACC_CHER_CH1;// DACC_CHER_CH0
+  DACC->DACC_IER |= DACC_IER_EOC;
+  // Active l'interruption DACC_IRQn dans le NVIC 
+  NVIC_EnableIRQ(DACC_IRQn);
+}*/
+
+void setupDAC_DMA() {
+  PMC->PMC_PCER1 |= PMC_PCER1_PID38;
+
+  DACC->DACC_MR =
+      DACC_MR_TRGEN_DIS |
+      DACC_MR_USER_SEL_CHANNEL1 |
+      DACC_MR_WORD_HALF |
+      DACC_MR_REFRESH(1) |
+      DACC_MR_STARTUP_8;
+
+  DACC->DACC_CHER = DACC_CHER_CH1;
+
+  // DMA DAC
+  DACC->DACC_TPR = (uint32_t)buffer;
+  DACC->DACC_TCR = BUF_SIZE;
+  DACC->DACC_TNPR = (uint32_t)buffer;
+  DACC->DACC_TNCR = BUF_SIZE;
+
+  DACC->DACC_PTCR = DACC_PTCR_TXTEN; // Active DMA TX
+}
+
+void DACC_Handler() {
+  DACC->DACC_ISR;  // effacer le register d’état
+}
+
+void setup() {
+  Serial.begin(460800); //Baud rate au maximum de l'Arduino Due
+  pinMode(PinTimer, OUTPUT); //Pin pour analyser la freq du timer
+  /* Todo:
+    Partie 1:
+    1 - setup le timer et le lancer
+    Partie 2: 
+    1 - setup l'ADC 
+    2 - setup le DAC
+  */
+  //setupADC();
+  //setupDAC();
+  setupADC_DMA();
+  setupDAC_DMA();
+  setupTimer();
+}
+
+void loop() {
+  //Partie 2:
+  if(ADC->ADC_ISR & ADC_ISR_EOC7){ // Fin de conversion canal ADC7
+    //Todo: 
+    //Partie 2:
+    // 1 - Afficher des valeurs de l'ADC sur le moniteur série
+    uint16_t val = ADC->ADC_CDR[7];
+
+    static uint16_t decim = 0;
+    if (++decim >= 1000) {   // 16 Hz seulement
+      Serial.println(val);
+      decim = 0;
+    }
+  
+
+    // 2 - Sortie sur le DAC des valeurs de l'ADC
+    DACC->DACC_CDR = DACC_CDR_DATA(val);
+    while (!(DACC->DACC_ISR & DACC_ISR_TXRDY));
+  }
+}
